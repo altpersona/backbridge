@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "backbridge",
+  "version": "${version}",
+  "name": "BackBridge",
+  "description": "Places a straight line of blocks behind the player with a hotkey.",
+  "authors": [
+    "OpenAI Codex"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.micro.backbridge.BackBridgeClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
+

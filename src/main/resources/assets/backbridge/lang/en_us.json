@@ -1,0 +1,9 @@
+{
+  "key.backbridge.place_line": "Place Backward Line",
+  "message.backbridge.started": "Placing up to %s blocks...",
+  "message.backbridge.invalid_block": "Select a block in your hotbar first.",
+  "message.backbridge.nothing_placed": "No blocks were placed.",
+  "message.backbridge.placed": "Placed %s blocks.",
+  "message.backbridge.cancelled": "Placement cancelled after %s blocks.",
+  "message.backbridge.stalled": "Placement stalled after %s blocks."
+}
