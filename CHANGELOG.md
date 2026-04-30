@@ -6,7 +6,25 @@ Update the `Unreleased` section whenever gameplay behavior, controls, compatibil
 
 ## [Unreleased]
 
-- No unreleased changes yet.
+No unreleased changes yet.
+
+## [0.1.21]
+
+### Changed
+
+- Build-up mode now honors inventory exhaustion mode from the existing `H` toggle.
+- Retuned build-up placement to retry every tick during the jump placement window instead of using the slower horizontal placement cadence.
+- Relaxed build-up placement previewing so the real placement call can handle the tight player-collision timing while the mod still validates target position, block state, and survival.
+
+## [0.1.20]
+
+### Added
+
+- Added the `J` hotkey to build upward by holding jump and placing blocks against the last confirmed support block.
+
+### Fixed
+
+- Expanded whitelisted obstacle clearing to cover grass, ferns, and crops such as wheat in addition to flowers.
 
 ## [0.1.19]
 

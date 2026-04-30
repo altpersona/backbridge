@@ -22,16 +22,24 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.BaseTorchBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.TallGrassBlock;
+import net.minecraft.world.level.block.VegetationBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.lwjgl.glfw.GLFW;
 
 public final class BackBridgeClient implements ClientModInitializer {
     private static final int MAX_PLACEMENTS = 64;
     private static final int PLACE_INTERVAL_TICKS = 4;
+    private static final int BUILD_UP_PLACE_INTERVAL_TICKS = 0;
+    private static final int BUILD_UP_CONFIRM_TICKS = 1;
+    private static final int BUILD_UP_MAX_ATTEMPTS_PER_BLOCK = 20;
+    private static final double BUILD_UP_PLACE_HEIGHT_EPSILON = 0.05D;
     private static final int MAX_ATTEMPTS_PER_BLOCK = 8;
     private static final int PLACEMENT_CONFIRM_TICKS = 2;
     private static final int EMPTY_SYNC_GRACE_TICKS = 10;
@@ -51,7 +59,16 @@ public final class BackBridgeClient implements ClientModInitializer {
             KeyMapping.Category.MISC
         )
     );
+    private static final KeyMapping BUILD_UP_KEY = KeyBindingHelper.registerKeyBinding(
+        new KeyMapping(
+            "key.backbridge.build_up",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_J,
+            KeyMapping.Category.MISC
+        )
+    );
     private static PlacementSession activeSession;
+    private static BuildUpSession activeBuildUpSession;
     private static boolean inventoryExhaustionModeEnabled;
 
     @Override
@@ -65,7 +82,12 @@ public final class BackBridgeClient implements ClientModInitializer {
                 startPlacement(client);
             }
 
+            while (BUILD_UP_KEY.consumeClick()) {
+                startBuildUp(client);
+            }
+
             tickPlacement(client);
+            tickBuildUp(client);
         });
     }
 
@@ -104,11 +126,54 @@ public final class BackBridgeClient implements ClientModInitializer {
             useInventoryExhaustionMode,
             startSurfaceY
         );
+        activeBuildUpSession = null;
+        restoreBuildUpKeys(client);
         setSessionMovement(client);
         player.displayClientMessage(
             useInventoryExhaustionMode
                 ? Component.translatable("message.backbridge.started_inventory")
                 : Component.translatable("message.backbridge.started", maxPlacements),
+            true
+        );
+    }
+
+    private static void startBuildUp(Minecraft client) {
+        LocalPlayer player = client.player;
+
+        if (player == null || client.level == null || client.gameMode == null) {
+            return;
+        }
+
+        ItemStack stack = player.getMainHandItem();
+        if (!(stack.getItem() instanceof BlockItem blockItem)) {
+            player.displayClientMessage(Component.translatable("message.backbridge.invalid_block"), true);
+            return;
+        }
+
+        boolean useInventoryExhaustionMode = inventoryExhaustionModeEnabled && !player.isCreative();
+        int maxPlacements = player.isCreative()
+            ? MAX_PLACEMENTS
+            : (useInventoryExhaustionMode ? Integer.MAX_VALUE : Math.min(MAX_PLACEMENTS, stack.getCount()));
+        if (maxPlacements <= 0) {
+            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+            return;
+        }
+
+        activeSession = null;
+        restoreMovementKeys(client);
+        activeBuildUpSession = new BuildUpSession(
+            player.getInventory().getSelectedSlot(),
+            stack.copy(),
+            blockItem,
+            findStartSupportPos(player),
+            maxPlacements,
+            useInventoryExhaustionMode
+        );
+        setBuildUpMovement(client);
+        player.displayClientMessage(
+            useInventoryExhaustionMode
+                ? Component.translatable("message.backbridge.build_up_started_inventory")
+                : Component.translatable("message.backbridge.build_up_started", maxPlacements),
             true
         );
     }
@@ -136,7 +201,7 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
 
         ItemStack stack = player.getInventory().getItem(session.slotIndex);
-        if (stack.isEmpty() && session.untilInventoryExhausted && refillSelectedSlotFromInventory(client, player, session)) {
+        if (stack.isEmpty() && session.untilInventoryExhausted && refillSelectedSlotFromInventory(client, player, session.slotIndex, session.bridgeTemplate)) {
             stack = player.getInventory().getItem(session.slotIndex);
         }
 
@@ -309,7 +374,19 @@ public final class BackBridgeClient implements ClientModInitializer {
     private static boolean isWhitelistedPathObstacle(BlockState state) {
         return state.is(Blocks.TORCH)
             || state.is(Blocks.WALL_TORCH)
-            || state.is(BlockTags.FLOWERS);
+            || isClearablePlant(state);
+    }
+
+    private static boolean isClearablePlant(BlockState state) {
+        return state.is(BlockTags.FLOWERS)
+            || state.is(BlockTags.CROPS)
+            || state.is(Blocks.SHORT_GRASS)
+            || state.is(Blocks.TALL_GRASS)
+            || state.is(Blocks.FERN)
+            || state.is(Blocks.LARGE_FERN)
+            || state.getBlock() instanceof CropBlock
+            || state.getBlock() instanceof TallGrassBlock
+            || state.getBlock() instanceof VegetationBlock && state.canBeReplaced();
     }
 
     private static PlacementStep resolveNextPlacement(Minecraft client, PlacementSession session) {
@@ -375,6 +452,197 @@ public final class BackBridgeClient implements ClientModInitializer {
         return new PredictedPlacement(placementPos, placementState);
     }
 
+    private static PredictedPlacement resolveExpectedBuildUpPlacement(
+        Minecraft client,
+        LocalPlayer player,
+        ItemStack stack,
+        BlockPos expectedTargetPos,
+        BlockPos clickSupportPos,
+        BlockItem bridgeItem
+    ) {
+        Vec3 hitPos = createPlacementHitPos(clickSupportPos, Direction.UP, bridgeItem);
+        BlockHitResult hitResult = new BlockHitResult(hitPos, Direction.UP, clickSupportPos, false);
+        BlockPlaceContext initialContext = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hitResult);
+        BlockPlaceContext placementContext = bridgeItem.updatePlacementContext(initialContext);
+        if (placementContext == null || !placementContext.canPlace()) {
+            return null;
+        }
+
+        BlockPos placementPos = placementContext.getClickedPos();
+        if (!placementPos.equals(expectedTargetPos)) {
+            return null;
+        }
+
+        BlockState placementState = bridgeItem.getBlock().getStateForPlacement(placementContext);
+        if (placementState == null || !placementState.canSurvive(client.level, placementPos)) {
+            return null;
+        }
+
+        return new PredictedPlacement(placementPos, placementState);
+    }
+
+    private static void tickBuildUp(Minecraft client) {
+        BuildUpSession session = activeBuildUpSession;
+        LocalPlayer player = client.player;
+
+        if (session == null) {
+            return;
+        }
+
+        if (player == null || client.level == null || client.gameMode == null) {
+            activeBuildUpSession = null;
+            restoreBuildUpKeys(client);
+            return;
+        }
+
+        setBuildUpMovement(client);
+
+        if (player.getInventory().getSelectedSlot() != session.slotIndex) {
+            cancelBuildUp(client, player, session);
+            return;
+        }
+
+        ItemStack stack = player.getInventory().getItem(session.slotIndex);
+        if (stack.isEmpty() && session.untilInventoryExhausted && refillSelectedSlotFromInventory(client, player, session.slotIndex, session.bridgeTemplate)) {
+            stack = player.getInventory().getItem(session.slotIndex);
+        }
+
+        if (!stack.isEmpty() && !ItemStack.isSameItemSameComponents(stack, session.bridgeTemplate)) {
+            cancelBuildUp(client, player, session);
+            return;
+        }
+
+        if (stack.isEmpty()) {
+            session.emptyTicks++;
+        } else {
+            session.emptyTicks = 0;
+        }
+
+        if (!session.untilInventoryExhausted && session.placed >= session.maxPlacements) {
+            finishBuildUp(client, player, session.placed);
+            return;
+        }
+
+        if (!player.isCreative() && stack.isEmpty() && session.emptyTicks >= EMPTY_SYNC_GRACE_TICKS) {
+            finishBuildUp(client, player, session.placed);
+            return;
+        }
+
+        if (session.cooldownTicks > 0) {
+            session.cooldownTicks--;
+            return;
+        }
+
+        BlockState supportState = client.level.getBlockState(session.supportPos);
+        if (supportState.canBeReplaced()) {
+            stallBuildUp(client, player, session);
+            return;
+        }
+
+        BlockPos targetPos = session.supportPos.above();
+        BlockState targetState = client.level.getBlockState(targetPos);
+        if (session.clearingObstacle) {
+            if (!isWhitelistedPathObstacle(targetState)) {
+                session.clearingObstacle = false;
+                session.attemptsOnCurrentTarget = 0;
+                session.confirmTicksOnCurrentTarget = 0;
+            }
+        } else if (!targetState.canBeReplaced()) {
+            session.confirmTicksOnCurrentTarget++;
+
+            if (session.confirmTicksOnCurrentTarget < BUILD_UP_CONFIRM_TICKS) {
+                return;
+            }
+
+            if (!isValidBuildUpState(client, session, targetPos, targetState)) {
+                stallBuildUp(client, player, session);
+                return;
+            }
+
+            session.supportPos = targetPos;
+            session.attemptsOnCurrentTarget = 0;
+            session.confirmTicksOnCurrentTarget = 0;
+            session.cooldownTicks = BUILD_UP_PLACE_INTERVAL_TICKS;
+            session.placed++;
+            return;
+        } else {
+            session.confirmTicksOnCurrentTarget = 0;
+        }
+
+        if (session.attemptsOnCurrentTarget >= BUILD_UP_MAX_ATTEMPTS_PER_BLOCK) {
+            stallBuildUp(client, player, session);
+            return;
+        }
+
+        if (session.clearingObstacle) {
+            if (!player.isWithinBlockInteractionRange(targetPos, 0.0D)) {
+                return;
+            }
+
+            if (!clearWhitelistedObstacle(client, player, targetPos)) {
+                session.attemptsOnCurrentTarget++;
+                session.cooldownTicks = PLACE_INTERVAL_TICKS;
+                return;
+            }
+
+            session.attemptsOnCurrentTarget++;
+            session.cooldownTicks = PLACE_INTERVAL_TICKS;
+            return;
+        }
+
+        if (isWhitelistedPathObstacle(targetState)) {
+            session.clearingObstacle = true;
+            return;
+        }
+
+        if (!targetState.canBeReplaced()) {
+            stallBuildUp(client, player, session);
+            return;
+        }
+
+        if (!player.isWithinBlockInteractionRange(session.supportPos, 0.0D)
+            || !player.isWithinBlockInteractionRange(targetPos, 0.0D)) {
+            return;
+        }
+
+        PredictedPlacement expectedPlacement = resolveExpectedBuildUpPlacement(
+            client,
+            player,
+            stack,
+            targetPos,
+            session.supportPos,
+            session.bridgeItem
+        );
+        if (expectedPlacement == null || !isValidBuildUpState(client, session, expectedPlacement.targetPos(), expectedPlacement.state())) {
+            return;
+        }
+
+        if (!isBuildUpPlacementWindow(client, player, targetPos, expectedPlacement.state())) {
+            return;
+        }
+
+        if (!placeAgainst(client, player, session.supportPos, Direction.UP, session.bridgeItem)) {
+            session.attemptsOnCurrentTarget++;
+            session.cooldownTicks = BUILD_UP_PLACE_INTERVAL_TICKS;
+            return;
+        }
+
+        session.attemptsOnCurrentTarget++;
+        session.cooldownTicks = BUILD_UP_PLACE_INTERVAL_TICKS;
+    }
+
+    private static boolean isValidBuildUpState(Minecraft client, BuildUpSession session, BlockPos targetPos, BlockState state) {
+        return targetPos.equals(session.supportPos.above()) && state.is(session.bridgeItem.getBlock());
+    }
+
+    private static boolean isBuildUpPlacementWindow(Minecraft client, LocalPlayer player, BlockPos targetPos, BlockState placementState) {
+        VoxelShape shape = placementState.getCollisionShape(client.level, targetPos);
+        double targetTopY = shape.isEmpty()
+            ? targetPos.getY() + 1.0D
+            : targetPos.getY() + shape.max(Direction.Axis.Y);
+        return player.getY() >= targetTopY - BUILD_UP_PLACE_HEIGHT_EPSILON;
+    }
+
     private static Vec3 createPlacementHitPos(BlockPos supportPos, Direction side, BlockItem bridgeItem) {
         if (side != Direction.UP && bridgeItem.getBlock() instanceof SlabBlock) {
             return new Vec3(
@@ -415,8 +683,8 @@ public final class BackBridgeClient implements ClientModInitializer {
         return BlockPos.containing(playerPos.x, playerPos.y - 0.2D, playerPos.z);
     }
 
-    private static boolean refillSelectedSlotFromInventory(Minecraft client, LocalPlayer player, PlacementSession session) {
-        int refillSlot = findBestRefillSlot(player, session);
+    private static boolean refillSelectedSlotFromInventory(Minecraft client, LocalPlayer player, int slotIndex, ItemStack bridgeTemplate) {
+        int refillSlot = findBestRefillSlot(player, slotIndex, bridgeTemplate);
         if (refillSlot < 0) {
             return false;
         }
@@ -424,25 +692,25 @@ public final class BackBridgeClient implements ClientModInitializer {
         client.gameMode.handleInventoryMouseClick(
             player.inventoryMenu.containerId,
             toInventoryMenuSlot(refillSlot),
-            session.slotIndex,
+            slotIndex,
             ClickType.SWAP,
             player
         );
-        ItemStack refilledStack = player.getInventory().getItem(session.slotIndex);
-        return !refilledStack.isEmpty() && ItemStack.isSameItemSameComponents(refilledStack, session.bridgeTemplate);
+        ItemStack refilledStack = player.getInventory().getItem(slotIndex);
+        return !refilledStack.isEmpty() && ItemStack.isSameItemSameComponents(refilledStack, bridgeTemplate);
     }
 
-    private static int findBestRefillSlot(LocalPlayer player, PlacementSession session) {
+    private static int findBestRefillSlot(LocalPlayer player, int selectedSlot, ItemStack bridgeTemplate) {
         int bestSlot = -1;
         int bestCount = 0;
 
         for (int slotIndex = 0; slotIndex < player.getInventory().getNonEquipmentItems().size(); slotIndex++) {
-            if (slotIndex == session.slotIndex) {
+            if (slotIndex == selectedSlot) {
                 continue;
             }
 
             ItemStack candidate = player.getInventory().getItem(slotIndex);
-            if (candidate.isEmpty() || !ItemStack.isSameItemSameComponents(candidate, session.bridgeTemplate)) {
+            if (candidate.isEmpty() || !ItemStack.isSameItemSameComponents(candidate, bridgeTemplate)) {
                 continue;
             }
 
@@ -511,16 +779,39 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
     }
 
+    private static void finishBuildUp(Minecraft client, LocalPlayer player, int placed) {
+        activeBuildUpSession = null;
+        restoreBuildUpKeys(client);
+
+        if (placed > 0) {
+            player.displayClientMessage(Component.translatable("message.backbridge.build_up_placed", placed), true);
+        } else {
+            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+        }
+    }
+
     private static void cancelSession(Minecraft client, LocalPlayer player, PlacementSession session) {
         activeSession = null;
         restoreMovementKeys(client);
         player.displayClientMessage(Component.translatable("message.backbridge.cancelled", session.placed), true);
     }
 
+    private static void cancelBuildUp(Minecraft client, LocalPlayer player, BuildUpSession session) {
+        activeBuildUpSession = null;
+        restoreBuildUpKeys(client);
+        player.displayClientMessage(Component.translatable("message.backbridge.build_up_cancelled", session.placed), true);
+    }
+
     private static void stallSession(Minecraft client, LocalPlayer player, PlacementSession session) {
         activeSession = null;
         restoreMovementKeys(client);
         player.displayClientMessage(Component.translatable("message.backbridge.stalled", session.placed), true);
+    }
+
+    private static void stallBuildUp(Minecraft client, LocalPlayer player, BuildUpSession session) {
+        activeBuildUpSession = null;
+        restoreBuildUpKeys(client);
+        player.displayClientMessage(Component.translatable("message.backbridge.build_up_stalled", session.placed), true);
     }
 
     private static void toggleInventoryExhaustionMode(Minecraft client) {
@@ -544,10 +835,18 @@ public final class BackBridgeClient implements ClientModInitializer {
         forceKeyState(client.options.keyShift, true);
     }
 
+    private static void setBuildUpMovement(Minecraft client) {
+        forceKeyState(client.options.keyJump, true);
+    }
+
     private static void restoreMovementKeys(Minecraft client) {
         restorePhysicalKeyState(client, client.options.keyUp);
         restorePhysicalKeyState(client, client.options.keyDown);
         restorePhysicalKeyState(client, client.options.keyShift);
+    }
+
+    private static void restoreBuildUpKeys(Minecraft client) {
+        restorePhysicalKeyState(client, client.options.keyJump);
     }
 
     private static void forceKeyState(KeyMapping keyMapping, boolean down) {
@@ -600,6 +899,37 @@ public final class BackBridgeClient implements ClientModInitializer {
             this.untilInventoryExhausted = untilInventoryExhausted;
             this.pathSurfaceY = pathSurfaceY;
             this.clickSide = backward;
+        }
+    }
+
+    private static final class BuildUpSession {
+        private final int slotIndex;
+        private final ItemStack bridgeTemplate;
+        private final BlockItem bridgeItem;
+        private final int maxPlacements;
+        private final boolean untilInventoryExhausted;
+        private BlockPos supportPos;
+        private int placed;
+        private int cooldownTicks;
+        private int attemptsOnCurrentTarget;
+        private int confirmTicksOnCurrentTarget;
+        private int emptyTicks;
+        private boolean clearingObstacle;
+
+        private BuildUpSession(
+            int slotIndex,
+            ItemStack bridgeTemplate,
+            BlockItem bridgeItem,
+            BlockPos supportPos,
+            int maxPlacements,
+            boolean untilInventoryExhausted
+        ) {
+            this.slotIndex = slotIndex;
+            this.bridgeTemplate = bridgeTemplate;
+            this.bridgeItem = bridgeItem;
+            this.supportPos = supportPos;
+            this.maxPlacements = maxPlacements;
+            this.untilInventoryExhausted = untilInventoryExhausted;
         }
     }
 
