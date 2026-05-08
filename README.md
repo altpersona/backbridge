@@ -1,12 +1,12 @@
 # BackBridge
 
-A tiny Fabric client mod for Minecraft `1.21.11` that places a straight line of up to `64` blocks behind the player from the currently selected hotbar slot.
+A tiny Fabric client mod for Minecraft `26.1.2` that places a straight line of up to `64` blocks behind the player from the currently selected hotbar slot.
 
 Detailed release notes and in-progress changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Latest Release
 
-Current release: `0.1.21`
+Current release: `0.1.23+mc26.1.2`
 
 - `G` builds the horizontal backward line.
 - `J` builds upward while holding jump.
@@ -40,8 +40,9 @@ If you start the run while standing on a slab, the line now anchors to that slab
 ## Notes
 
 - This is a client-side Fabric mod.
-- It is pinned to Minecraft `1.21.11`; Minecraft mods are not truly version agnostic across API and mapping changes.
-- It uses Mojang mappings so moving forward from `1.21.11` to `26.1+` should be easier than a Yarn-based setup.
+- It is pinned to Minecraft `26.1.2`; Minecraft mods are not truly version agnostic across API and mapping changes.
+- Minecraft `26.1.2` requires Java `25` or newer.
+- It uses Mojang mappings so moving forward across `26.1.x` should be easier than a Yarn-based setup.
 - The selected hotbar slot is used as requested for the simplest workflow.
 - If you change the selected slot while a run is in progress, the current run is cancelled.
 - Inventory exhaustion mode only affects non-creative runs. In that mode the selected hotbar slot stays fixed, and BackBridge swaps matching stacks from the rest of your inventory into that slot as it empties.

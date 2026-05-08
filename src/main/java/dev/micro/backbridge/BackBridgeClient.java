@@ -3,7 +3,7 @@ package dev.micro.backbridge;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -17,7 +17,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.BaseTorchBlock;
@@ -43,7 +43,7 @@ public final class BackBridgeClient implements ClientModInitializer {
     private static final int MAX_ATTEMPTS_PER_BLOCK = 8;
     private static final int PLACEMENT_CONFIRM_TICKS = 2;
     private static final int EMPTY_SYNC_GRACE_TICKS = 10;
-    private static final KeyMapping PLACE_LINE_KEY = KeyBindingHelper.registerKeyBinding(
+    private static final KeyMapping PLACE_LINE_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.place_line",
             InputConstants.Type.KEYSYM,
@@ -51,7 +51,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             KeyMapping.Category.MISC
         )
     );
-    private static final KeyMapping TOGGLE_INVENTORY_EXHAUSTION_KEY = KeyBindingHelper.registerKeyBinding(
+    private static final KeyMapping TOGGLE_INVENTORY_EXHAUSTION_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.toggle_inventory_exhaustion",
             InputConstants.Type.KEYSYM,
@@ -59,7 +59,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             KeyMapping.Category.MISC
         )
     );
-    private static final KeyMapping BUILD_UP_KEY = KeyBindingHelper.registerKeyBinding(
+    private static final KeyMapping BUILD_UP_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.build_up",
             InputConstants.Type.KEYSYM,
@@ -100,7 +100,7 @@ public final class BackBridgeClient implements ClientModInitializer {
 
         ItemStack stack = player.getMainHandItem();
         if (!(stack.getItem() instanceof BlockItem blockItem)) {
-            player.displayClientMessage(Component.translatable("message.backbridge.invalid_block"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.invalid_block"));
             return;
         }
 
@@ -109,7 +109,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             ? MAX_PLACEMENTS
             : (useInventoryExhaustionMode ? Integer.MAX_VALUE : Math.min(MAX_PLACEMENTS, stack.getCount()));
         if (maxPlacements <= 0) {
-            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.nothing_placed"));
             return;
         }
 
@@ -129,11 +129,10 @@ public final class BackBridgeClient implements ClientModInitializer {
         activeBuildUpSession = null;
         restoreBuildUpKeys(client);
         setSessionMovement(client);
-        player.displayClientMessage(
+        player.sendOverlayMessage(
             useInventoryExhaustionMode
                 ? Component.translatable("message.backbridge.started_inventory")
-                : Component.translatable("message.backbridge.started", maxPlacements),
-            true
+                : Component.translatable("message.backbridge.started", maxPlacements)
         );
     }
 
@@ -146,7 +145,7 @@ public final class BackBridgeClient implements ClientModInitializer {
 
         ItemStack stack = player.getMainHandItem();
         if (!(stack.getItem() instanceof BlockItem blockItem)) {
-            player.displayClientMessage(Component.translatable("message.backbridge.invalid_block"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.invalid_block"));
             return;
         }
 
@@ -155,7 +154,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             ? MAX_PLACEMENTS
             : (useInventoryExhaustionMode ? Integer.MAX_VALUE : Math.min(MAX_PLACEMENTS, stack.getCount()));
         if (maxPlacements <= 0) {
-            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.nothing_placed"));
             return;
         }
 
@@ -170,11 +169,10 @@ public final class BackBridgeClient implements ClientModInitializer {
             useInventoryExhaustionMode
         );
         setBuildUpMovement(client);
-        player.displayClientMessage(
+        player.sendOverlayMessage(
             useInventoryExhaustionMode
                 ? Component.translatable("message.backbridge.build_up_started_inventory")
-                : Component.translatable("message.backbridge.build_up_started", maxPlacements),
-            true
+                : Component.translatable("message.backbridge.build_up_started", maxPlacements)
         );
     }
 
@@ -689,11 +687,11 @@ public final class BackBridgeClient implements ClientModInitializer {
             return false;
         }
 
-        client.gameMode.handleInventoryMouseClick(
+        client.gameMode.handleContainerInput(
             player.inventoryMenu.containerId,
             toInventoryMenuSlot(refillSlot),
             slotIndex,
-            ClickType.SWAP,
+            ContainerInput.SWAP,
             player
         );
         ItemStack refilledStack = player.getInventory().getItem(slotIndex);
@@ -773,9 +771,9 @@ public final class BackBridgeClient implements ClientModInitializer {
         restoreMovementKeys(client);
 
         if (placed > 0) {
-            player.displayClientMessage(Component.translatable("message.backbridge.placed", placed), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.placed", placed));
         } else {
-            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.nothing_placed"));
         }
     }
 
@@ -784,47 +782,46 @@ public final class BackBridgeClient implements ClientModInitializer {
         restoreBuildUpKeys(client);
 
         if (placed > 0) {
-            player.displayClientMessage(Component.translatable("message.backbridge.build_up_placed", placed), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.build_up_placed", placed));
         } else {
-            player.displayClientMessage(Component.translatable("message.backbridge.nothing_placed"), true);
+            player.sendOverlayMessage(Component.translatable("message.backbridge.nothing_placed"));
         }
     }
 
     private static void cancelSession(Minecraft client, LocalPlayer player, PlacementSession session) {
         activeSession = null;
         restoreMovementKeys(client);
-        player.displayClientMessage(Component.translatable("message.backbridge.cancelled", session.placed), true);
+        player.sendOverlayMessage(Component.translatable("message.backbridge.cancelled", session.placed));
     }
 
     private static void cancelBuildUp(Minecraft client, LocalPlayer player, BuildUpSession session) {
         activeBuildUpSession = null;
         restoreBuildUpKeys(client);
-        player.displayClientMessage(Component.translatable("message.backbridge.build_up_cancelled", session.placed), true);
+        player.sendOverlayMessage(Component.translatable("message.backbridge.build_up_cancelled", session.placed));
     }
 
     private static void stallSession(Minecraft client, LocalPlayer player, PlacementSession session) {
         activeSession = null;
         restoreMovementKeys(client);
-        player.displayClientMessage(Component.translatable("message.backbridge.stalled", session.placed), true);
+        player.sendOverlayMessage(Component.translatable("message.backbridge.stalled", session.placed));
     }
 
     private static void stallBuildUp(Minecraft client, LocalPlayer player, BuildUpSession session) {
         activeBuildUpSession = null;
         restoreBuildUpKeys(client);
-        player.displayClientMessage(Component.translatable("message.backbridge.build_up_stalled", session.placed), true);
+        player.sendOverlayMessage(Component.translatable("message.backbridge.build_up_stalled", session.placed));
     }
 
     private static void toggleInventoryExhaustionMode(Minecraft client) {
         inventoryExhaustionModeEnabled = !inventoryExhaustionModeEnabled;
 
         if (client.player != null) {
-            client.player.displayClientMessage(
+            client.player.sendOverlayMessage(
                 Component.translatable(
                     inventoryExhaustionModeEnabled
                         ? "message.backbridge.inventory_mode_on"
                         : "message.backbridge.inventory_mode_off"
-                ),
-                true
+                )
             );
         }
     }
@@ -854,7 +851,7 @@ public final class BackBridgeClient implements ClientModInitializer {
     }
 
     private static void restorePhysicalKeyState(Minecraft client, KeyMapping keyMapping) {
-        InputConstants.Key boundKey = KeyBindingHelper.getBoundKeyOf(keyMapping);
+        InputConstants.Key boundKey = KeyMappingHelper.getBoundKeyOf(keyMapping);
         boolean physicalDown = boundKey.getType() == InputConstants.Type.MOUSE
             ? false
             : InputConstants.isKeyDown(client.getWindow(), boundKey.getValue());

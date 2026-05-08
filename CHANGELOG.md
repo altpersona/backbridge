@@ -8,6 +8,19 @@ Update the `Unreleased` section whenever gameplay behavior, controls, compatibil
 
 No unreleased changes yet.
 
+## [0.1.23+mc26.1.2]
+
+### Changed
+
+- Updated the mod target to Minecraft `26.1.2`, Fabric Loader `0.19.2`, and Fabric API `0.148.0+26.1.2`.
+- Raised the Java target and Fabric metadata requirement to Java `25` for Minecraft `26.1.2`.
+
+## [0.1.22+mc1.21.11]
+
+### Changed
+
+- Updated release versioning so the published mod version includes the intended Minecraft target, currently `1.21.11`.
+
 ## [0.1.21]
 
 ### Changed
