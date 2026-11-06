@@ -16,9 +16,10 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.HoeItem;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
@@ -34,7 +35,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import org.lwjgl.glfw.GLFW;
+
 
 public final class BackBridgeClient implements ClientModInitializer {
     private static final int MAX_PLACEMENTS = 64;
@@ -50,24 +51,24 @@ public final class BackBridgeClient implements ClientModInitializer {
     private static final KeyMapping PLACE_LINE_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.place_line",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_G,
+            InputConstants.Type.KEYBOARD,
+            InputConstants.KEY_G,
             KeyMapping.Category.MISC
         )
     );
     private static final KeyMapping TOGGLE_INVENTORY_EXHAUSTION_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.toggle_inventory_exhaustion",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_H,
+            InputConstants.Type.KEYBOARD,
+            InputConstants.KEY_H,
             KeyMapping.Category.MISC
         )
     );
     private static final KeyMapping BUILD_UP_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.build_up",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_J,
+            InputConstants.Type.KEYBOARD,
+            InputConstants.KEY_J,
             KeyMapping.Category.MISC
         )
     );
@@ -411,7 +412,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             return false;
         }
 
-        player.swing(InteractionHand.MAIN_HAND);
+        player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
         return true;
     }
 
@@ -425,7 +426,7 @@ public final class BackBridgeClient implements ClientModInitializer {
             return false;
         }
 
-        player.swing(InteractionHand.MAIN_HAND);
+        player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
         return true;
     }
 
@@ -870,7 +871,7 @@ public final class BackBridgeClient implements ClientModInitializer {
                 continue;
             }
 
-            if (player.getInventory().getItem(slotIndex).getItem() instanceof HoeItem) {
+            if (player.getInventory().getItem(slotIndex).is(ItemTags.HOES)) {
                 return slotIndex;
             }
         }
@@ -920,7 +921,7 @@ public final class BackBridgeClient implements ClientModInitializer {
         InteractionResult result = client.gameMode.useItemOn(player, InteractionHand.OFF_HAND, hitResult);
 
         if (result.consumesAction()) {
-            player.swing(InteractionHand.OFF_HAND);
+            player.swing(InteractionHand.OFF_HAND, SwingAnimation.DEFAULT, false);
         }
     }
 
@@ -1012,7 +1013,7 @@ public final class BackBridgeClient implements ClientModInitializer {
         InputConstants.Key boundKey = KeyMappingHelper.getBoundKeyOf(keyMapping);
         boolean physicalDown = boundKey.getType() == InputConstants.Type.MOUSE
             ? false
-            : InputConstants.isKeyDown(client.getWindow(), boundKey.getValue());
+            : InputConstants.isKeyDown(boundKey.getValue());
         keyMapping.setDown(physicalDown);
     }
 

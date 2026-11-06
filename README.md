@@ -5,13 +5,13 @@
 [![CurseForge](https://img.shields.io/badge/CurseForge-Backbridge-orange)](https://www.curseforge.com/minecraft/mc-mods/backbridge)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A tiny Fabric client mod for Minecraft `26.2` that places a straight line of up to `64` blocks behind the player from the currently selected hotbar slot.
+A tiny Fabric client mod for Minecraft `26.3` that places a straight line of up to `64` blocks behind the player from the currently selected hotbar slot.
 
 Detailed release notes and in-progress changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Latest Release
 
-Current release: `0.1.26+mc26.2`
+Current release: `0.1.26+mc26.3`
 
 - `G` builds the horizontal backward line.
 - `J` builds upward while holding jump.
@@ -45,9 +45,9 @@ If you start the run while standing on a slab, the line now anchors to that slab
 ## Notes
 
 - This is a client-side Fabric mod.
-- It is pinned to Minecraft `26.1.2`; Minecraft mods are not truly version agnostic across API and mapping changes.
-- Minecraft `26.1.2` requires Java `25` or newer.
-- It uses Mojang mappings so moving forward across `26.1.x` should be easier than a Yarn-based setup.
+- One file is published per Minecraft version (`26.1.2`, `26.2`, `26.3`); Minecraft mods are not truly version agnostic across API and mapping changes.
+- Minecraft `26.1.2`+ requires Java `25` or newer.
+- It uses Mojang mappings so moving forward across the `26.x` line is easier than a Yarn-based setup.
 - The selected hotbar slot is used as requested for the simplest workflow.
 - If you change the selected slot while a run is in progress, the current run is cancelled.
 - Inventory exhaustion mode only affects non-creative runs. In that mode the selected hotbar slot stays fixed, and BackBridge swaps matching stacks from the rest of your inventory into that slot as it empties.

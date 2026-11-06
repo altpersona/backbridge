@@ -8,6 +8,17 @@ Update the `Unreleased` section whenever gameplay behavior, controls, compatibil
 
 No unreleased changes yet.
 
+## [0.1.26+mc26.3]
+
+### Changed
+
+- Ported to Minecraft 26.3 (Fabric API 0.165.2+26.3); feature set identical to 0.1.26+mc26.1.2.
+
+### Fixed (port)
+
+- Adapted to 26.3 API changes: keybinding registration (`KEYSYM` → `KEYBOARD`, Mojang key constants replacing direct GLFW), hand-swing animation argument, hoe detection via the `minecraft:hoes` item tag, and single-argument key-state lookup.
+- Build toolchain moved to fabric-loom 1.17 / Gradle 9.5.1 for the 26.3 line.
+
 ## [0.1.26+mc26.2]
 
 ### Changed
