@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew build
+
+      - name: Extract changelog from tag
+        id: tag
+        run: |
+          {
+            echo 'changelog<<TAG_EOF'
+            git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME"
+            echo 'TAG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        uses: Kira-NT/mc-publish@c23376546a97f5ba7984e94445da359459b14419 # v3.3.2
+        with:
+          curseforge-id: 1786211
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            build/libs/!(*-@(dev|sources|javadoc)).jar
+          changelog: ${{ steps.tag.outputs.changelog }}
+          version-type: release
+          # game-versions/loaders/java resolve automatically from fabric.mod.json in the jar
+          # Enable when Modrinth signup is sorted:
+          # modrinth-id: TODO
+          # modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
