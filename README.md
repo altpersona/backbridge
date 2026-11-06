@@ -1,5 +1,10 @@
 # BackBridge
 
+![BackBridge banner](assets/banner_1600x400.png)
+
+[![CurseForge](https://img.shields.io/badge/CurseForge-Backbridge-orange)](https://www.curseforge.com/minecraft/mc-mods/backbridge)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A tiny Fabric client mod for Minecraft `26.1.2` that places a straight line of up to `64` blocks behind the player from the currently selected hotbar slot.
 
 Detailed release notes and in-progress changes are tracked in [CHANGELOG.md](CHANGELOG.md).
