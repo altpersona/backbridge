@@ -8,6 +8,12 @@ Update the `Unreleased` section whenever gameplay behavior, controls, compatibil
 
 No unreleased changes yet.
 
+## [0.1.26+mc26.2]
+
+### Changed
+
+- Ported to Minecraft 26.2 (Fabric API 0.161.0+26.2); feature set identical to 0.1.26+mc26.1.2.
+
 ## [0.1.26+mc26.1.2]
 
 ### Added
