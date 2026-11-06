@@ -10,11 +10,14 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.HoeItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.inventory.ContainerInput;
@@ -43,6 +46,7 @@ public final class BackBridgeClient implements ClientModInitializer {
     private static final int MAX_ATTEMPTS_PER_BLOCK = 8;
     private static final int PLACEMENT_CONFIRM_TICKS = 2;
     private static final int EMPTY_SYNC_GRACE_TICKS = 10;
+    private static final double SURFACE_PLACEMENT_MAX_COLLISION_HEIGHT = 0.25D;
     private static final KeyMapping PLACE_LINE_KEY = KeyMappingHelper.registerKeyMapping(
         new KeyMapping(
             "key.backbridge.place_line",
@@ -99,7 +103,8 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
 
         ItemStack stack = player.getMainHandItem();
-        if (!(stack.getItem() instanceof BlockItem blockItem)) {
+        BlockItem blockItem = stack.getItem() instanceof BlockItem selectedBlockItem ? selectedBlockItem : null;
+        if (stack.isEmpty()) {
             player.sendOverlayMessage(Component.translatable("message.backbridge.invalid_block"));
             return;
         }
@@ -107,7 +112,9 @@ public final class BackBridgeClient implements ClientModInitializer {
         boolean useInventoryExhaustionMode = inventoryExhaustionModeEnabled && !player.isCreative();
         int maxPlacements = player.isCreative()
             ? MAX_PLACEMENTS
-            : (useInventoryExhaustionMode ? Integer.MAX_VALUE : Math.min(MAX_PLACEMENTS, stack.getCount()));
+            : (blockItem == null
+                ? MAX_PLACEMENTS
+                : (useInventoryExhaustionMode ? Integer.MAX_VALUE : Math.min(MAX_PLACEMENTS, stack.getCount())));
         if (maxPlacements <= 0) {
             player.sendOverlayMessage(Component.translatable("message.backbridge.nothing_placed"));
             return;
@@ -119,12 +126,14 @@ public final class BackBridgeClient implements ClientModInitializer {
         activeSession = new PlacementSession(
             player.getInventory().getSelectedSlot(),
             stack.copy(),
+            stack.getItem(),
             blockItem,
             startSupportPos,
             player.getDirection().getOpposite(),
             maxPlacements,
             useInventoryExhaustionMode,
-            startSurfaceY
+            startSurfaceY,
+            blockItem == null || shouldPlaceOnExistingSupport(client, blockItem)
         );
         activeBuildUpSession = null;
         restoreBuildUpKeys(client);
@@ -199,11 +208,17 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
 
         ItemStack stack = player.getInventory().getItem(session.slotIndex);
-        if (stack.isEmpty() && session.untilInventoryExhausted && refillSelectedSlotFromInventory(client, player, session.slotIndex, session.bridgeTemplate)) {
+        if (!session.useActionMode
+            && stack.isEmpty()
+            && session.untilInventoryExhausted
+            && refillSelectedSlotFromInventory(client, player, session.slotIndex, session.bridgeTemplate)) {
             stack = player.getInventory().getItem(session.slotIndex);
         }
 
-        if (!stack.isEmpty() && !ItemStack.isSameItemSameComponents(stack, session.bridgeTemplate)) {
+        if (!stack.isEmpty()
+            && (session.useActionMode
+                ? stack.getItem() != session.actionItem
+                : !ItemStack.isSameItemSameComponents(stack, session.bridgeTemplate))) {
             cancelSession(client, player, session);
             return;
         }
@@ -215,7 +230,7 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
 
         BlockPos playerSupportPos = findStartSupportPos(player);
-        if (!isSameSurfaceY(getSupportSurfaceY(client, playerSupportPos), session.pathSurfaceY)) {
+        if (!isSamePathSurface(client, session, playerSupportPos)) {
             stallSession(client, player, session);
             return;
         }
@@ -234,7 +249,17 @@ public final class BackBridgeClient implements ClientModInitializer {
                     session.attemptsOnCurrentTarget = 0;
                     session.confirmTicksOnCurrentTarget = 0;
                 }
-            } else if (!currentTargetState.canBeReplaced()) {
+            } else if (session.preparingSupport) {
+                if (client.level.getBlockState(session.nextSupportPos).is(Blocks.FARMLAND)) {
+                    session.preparingSupport = false;
+                    session.hoeSlot = -1;
+                    session.attemptsOnCurrentTarget = 0;
+                    session.confirmTicksOnCurrentTarget = 0;
+                    session.cooldownTicks = 0;
+                    selectHotbarSlot(player, session.slotIndex);
+                    return;
+                }
+            } else if (session.useActionMode || !currentTargetState.canBeReplaced()) {
                 session.confirmTicksOnCurrentTarget++;
 
                 if (session.confirmTicksOnCurrentTarget < PLACEMENT_CONFIRM_TICKS) {
@@ -247,7 +272,11 @@ public final class BackBridgeClient implements ClientModInitializer {
                 }
 
                 session.supportPos = session.currentTarget;
+                if (session.surfacePlacementMode) {
+                    session.supportPos = session.nextSupportPos;
+                }
                 session.currentTarget = null;
+                session.nextSupportPos = null;
                 session.clickSupportPos = null;
                 session.attemptsOnCurrentTarget = 0;
                 session.confirmTicksOnCurrentTarget = 0;
@@ -285,9 +314,12 @@ public final class BackBridgeClient implements ClientModInitializer {
             }
 
             session.currentTarget = nextStep.targetPos();
+            session.nextSupportPos = nextStep.nextSupportPos();
             session.clickSupportPos = nextStep.clickSupportPos();
             session.clickSide = nextStep.clickSide();
             session.clearingObstacle = nextStep.clearObstacle();
+            session.preparingSupport = nextStep.prepareSupport();
+            session.originalTargetState = client.level.getBlockState(session.currentTarget);
             session.attemptsOnCurrentTarget = 0;
             session.confirmTicksOnCurrentTarget = 0;
         }
@@ -313,6 +345,33 @@ public final class BackBridgeClient implements ClientModInitializer {
             return;
         }
 
+        if (session.preparingSupport) {
+            if (!player.isWithinBlockInteractionRange(session.nextSupportPos, 0.0D)) {
+                return;
+            }
+
+            int hoeSlot = findHoeSlot(player, session.slotIndex);
+            if (hoeSlot < 0) {
+                finishSession(client, player, session.placed);
+                return;
+            }
+
+            session.hoeSlot = hoeSlot;
+            selectHotbarSlot(player, hoeSlot);
+            boolean tilled = placeAgainst(client, player, session.nextSupportPos, Direction.UP, null);
+            selectHotbarSlot(player, session.slotIndex);
+
+            if (!tilled) {
+                session.attemptsOnCurrentTarget++;
+                session.cooldownTicks = PLACE_INTERVAL_TICKS;
+                return;
+            }
+
+            session.attemptsOnCurrentTarget++;
+            session.cooldownTicks = PLACE_INTERVAL_TICKS;
+            return;
+        }
+
         if (!player.isWithinBlockInteractionRange(session.clickSupportPos, 0.0D)
             || !player.isWithinBlockInteractionRange(session.currentTarget, 0.0D)) {
             return;
@@ -327,7 +386,8 @@ public final class BackBridgeClient implements ClientModInitializer {
             session.clickSide,
             session.bridgeItem
         );
-        if (expectedPlacement == null || !isValidPathState(client, session, expectedPlacement.targetPos(), expectedPlacement.state())) {
+        if (!session.useActionMode
+            && (expectedPlacement == null || !isValidPathState(client, session, expectedPlacement.targetPos(), expectedPlacement.state()))) {
             finishSession(client, player, session.placed);
             return;
         }
@@ -388,6 +448,33 @@ public final class BackBridgeClient implements ClientModInitializer {
     }
 
     private static PlacementStep resolveNextPlacement(Minecraft client, PlacementSession session) {
+        if (session.surfacePlacementMode) {
+            BlockPos nextSupportPos = session.supportPos.relative(session.backward);
+            BlockState nextSupportState = client.level.getBlockState(nextSupportPos);
+            if (nextSupportState.canBeReplaced()
+                || (!session.useActionMode && !isSamePathSurface(client, session, nextSupportPos, nextSupportState))) {
+                return null;
+            }
+
+            BlockPos nextTargetPos = session.useActionMode ? nextSupportPos : nextSupportPos.above();
+            BlockState nextTargetState = client.level.getBlockState(nextTargetPos);
+            if (!session.useActionMode && !isTargetPlaceableOrClearable(nextTargetState)) {
+                return null;
+            }
+
+            boolean prepareSupport = session.hoeAssistedCropMode
+                && !nextSupportState.is(Blocks.FARMLAND)
+                && canPrepareFarmland(client, nextSupportPos, nextSupportState);
+            return new PlacementStep(
+                nextTargetPos,
+                nextSupportPos,
+                Direction.UP,
+                isWhitelistedPathObstacle(nextTargetState),
+                nextSupportPos,
+                prepareSupport
+            );
+        }
+
         BlockPos nextTargetPos = session.supportPos.relative(session.backward);
         BlockState nextTargetState = client.level.getBlockState(nextTargetPos);
         if (!isTargetPlaceableOrClearable(nextTargetState)) {
@@ -400,7 +487,9 @@ public final class BackBridgeClient implements ClientModInitializer {
             nextTargetPos,
             clickSupportPos,
             clickSide,
-            isWhitelistedPathObstacle(nextTargetState)
+            isWhitelistedPathObstacle(nextTargetState),
+            nextTargetPos,
+            false
         );
     }
 
@@ -409,7 +498,7 @@ public final class BackBridgeClient implements ClientModInitializer {
     }
 
     private static BlockPos resolveClickSupportPos(Minecraft client, PlacementSession session, BlockPos targetPos) {
-        if (session.bridgeItem.getBlock() instanceof SlabBlock && canUseAsPlacementBase(client, targetPos.below())) {
+        if (session.bridgeItem != null && session.bridgeItem.getBlock() instanceof SlabBlock && canUseAsPlacementBase(client, targetPos.below())) {
             return targetPos.below();
         }
 
@@ -425,6 +514,10 @@ public final class BackBridgeClient implements ClientModInitializer {
         Direction clickSide,
         BlockItem bridgeItem
     ) {
+        if (bridgeItem == null) {
+            return null;
+        }
+
         Vec3 hitPos = createPlacementHitPos(clickSupportPos, clickSide, bridgeItem);
         BlockHitResult hitResult = new BlockHitResult(hitPos, clickSide, clickSupportPos, false);
         BlockPlaceContext initialContext = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hitResult);
@@ -642,7 +735,7 @@ public final class BackBridgeClient implements ClientModInitializer {
     }
 
     private static Vec3 createPlacementHitPos(BlockPos supportPos, Direction side, BlockItem bridgeItem) {
-        if (side != Direction.UP && bridgeItem.getBlock() instanceof SlabBlock) {
+        if (bridgeItem != null && side != Direction.UP && bridgeItem.getBlock() instanceof SlabBlock) {
             return new Vec3(
                 supportPos.getX() + 0.5D,
                 supportPos.getY() + 0.25D,
@@ -660,8 +753,50 @@ public final class BackBridgeClient implements ClientModInitializer {
     }
 
     private static boolean isValidPathState(Minecraft client, PlacementSession session, BlockPos targetPos, BlockState state) {
+        if (session.useActionMode) {
+            return session.nextSupportPos != null
+                && targetPos.equals(session.nextSupportPos)
+                && !state.equals(session.originalTargetState);
+        }
+
+        if (session.surfacePlacementMode) {
+            return session.nextSupportPos != null
+                && targetPos.equals(session.nextSupportPos.above())
+                && state.is(session.bridgeItem.getBlock())
+                && isSamePathSurface(client, session, session.nextSupportPos);
+        }
+
         return state.is(session.bridgeItem.getBlock())
             && isSameSurfaceY(getSupportSurfaceY(client, targetPos, state), session.pathSurfaceY);
+    }
+
+    private static boolean shouldPlaceOnExistingSupport(Minecraft client, BlockItem bridgeItem) {
+        BlockState defaultState = bridgeItem.getBlock().defaultBlockState();
+        VoxelShape shape = defaultState.getCollisionShape(client.level, BlockPos.ZERO);
+        return shape.isEmpty() || shape.max(Direction.Axis.Y) <= SURFACE_PLACEMENT_MAX_COLLISION_HEIGHT;
+    }
+
+    private static boolean isHoeAssistedCrop(BlockItem bridgeItem) {
+        BlockState defaultState = bridgeItem.getBlock().defaultBlockState();
+        return defaultState.is(BlockTags.CROPS) || bridgeItem.getBlock() instanceof CropBlock;
+    }
+
+    private static boolean canPrepareFarmland(Minecraft client, BlockPos supportPos, BlockState supportState) {
+        return client.level.getBlockState(supportPos.above()).canBeReplaced()
+            && (supportState.is(Blocks.GRASS_BLOCK)
+                || supportState.is(Blocks.DIRT_PATH)
+                || supportState.is(Blocks.DIRT)
+                || supportState.is(Blocks.COARSE_DIRT)
+                || supportState.is(Blocks.ROOTED_DIRT));
+    }
+
+    private static boolean isSamePathSurface(Minecraft client, PlacementSession session, BlockPos pos) {
+        return isSamePathSurface(client, session, pos, client.level.getBlockState(pos));
+    }
+
+    private static boolean isSamePathSurface(Minecraft client, PlacementSession session, BlockPos pos, BlockState state) {
+        double tolerance = session.hoeAssistedCropMode ? 0.2D : 1.0E-4D;
+        return Math.abs(getSupportSurfaceY(client, pos, state) - session.pathSurfaceY) < tolerance;
     }
 
     private static double getSupportSurfaceY(Minecraft client, BlockPos pos) {
@@ -727,6 +862,29 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
 
         return inventorySlot;
+    }
+
+    private static int findHoeSlot(LocalPlayer player, int selectedSlot) {
+        for (int slotIndex = 0; slotIndex < Inventory.getSelectionSize(); slotIndex++) {
+            if (slotIndex == selectedSlot) {
+                continue;
+            }
+
+            if (player.getInventory().getItem(slotIndex).getItem() instanceof HoeItem) {
+                return slotIndex;
+            }
+        }
+
+        return -1;
+    }
+
+    private static void selectHotbarSlot(LocalPlayer player, int slotIndex) {
+        if (player.getInventory().getSelectedSlot() == slotIndex) {
+            return;
+        }
+
+        player.getInventory().setSelectedSlot(slotIndex);
+        player.connection.send(new ServerboundSetCarriedItemPacket(slotIndex));
     }
 
     private static void tryPlaceTorch(Minecraft client, LocalPlayer player, BlockPos supportPos) {
@@ -861,40 +1019,54 @@ public final class BackBridgeClient implements ClientModInitializer {
     private static final class PlacementSession {
         private final int slotIndex;
         private final ItemStack bridgeTemplate;
+        private final Item actionItem;
         private final BlockItem bridgeItem;
         private final Direction backward;
         private final int maxPlacements;
         private final boolean untilInventoryExhausted;
         private final double pathSurfaceY;
+        private final boolean surfacePlacementMode;
+        private final boolean useActionMode;
+        private final boolean hoeAssistedCropMode;
         private BlockPos supportPos;
         private BlockPos currentTarget;
+        private BlockPos nextSupportPos;
         private BlockPos clickSupportPos;
+        private BlockState originalTargetState;
         private int placed;
         private int cooldownTicks;
         private int attemptsOnCurrentTarget;
         private int confirmTicksOnCurrentTarget;
         private int emptyTicks;
+        private int hoeSlot = -1;
         private boolean clearingObstacle;
+        private boolean preparingSupport;
         private Direction clickSide;
 
         private PlacementSession(
             int slotIndex,
             ItemStack bridgeTemplate,
+            Item actionItem,
             BlockItem bridgeItem,
             BlockPos supportPos,
             Direction backward,
             int maxPlacements,
             boolean untilInventoryExhausted,
-            double pathSurfaceY
+            double pathSurfaceY,
+            boolean surfacePlacementMode
         ) {
             this.slotIndex = slotIndex;
             this.bridgeTemplate = bridgeTemplate;
+            this.actionItem = actionItem;
             this.bridgeItem = bridgeItem;
             this.supportPos = supportPos;
             this.backward = backward;
             this.maxPlacements = maxPlacements;
             this.untilInventoryExhausted = untilInventoryExhausted;
             this.pathSurfaceY = pathSurfaceY;
+            this.surfacePlacementMode = surfacePlacementMode;
+            this.useActionMode = bridgeItem == null;
+            this.hoeAssistedCropMode = bridgeItem != null && surfacePlacementMode && isHoeAssistedCrop(bridgeItem);
             this.clickSide = backward;
         }
     }
@@ -930,7 +1102,14 @@ public final class BackBridgeClient implements ClientModInitializer {
         }
     }
 
-    private record PlacementStep(BlockPos targetPos, BlockPos clickSupportPos, Direction clickSide, boolean clearObstacle) {
+    private record PlacementStep(
+        BlockPos targetPos,
+        BlockPos clickSupportPos,
+        Direction clickSide,
+        boolean clearObstacle,
+        BlockPos nextSupportPos,
+        boolean prepareSupport
+    ) {
     }
 
     private record PredictedPlacement(BlockPos targetPos, BlockState state) {

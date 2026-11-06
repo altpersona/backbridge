@@ -8,6 +8,24 @@ Update the `Unreleased` section whenever gameplay behavior, controls, compatibil
 
 No unreleased changes yet.
 
+## [0.1.26+mc26.1.2]
+
+### Added
+
+- Added hoe-assisted crop placement: when seeds or other farmland crops are selected, horizontal line mode can briefly use a hoe from another hotbar slot to till dirt, grass, or path blocks before planting.
+
+## [0.1.25+mc26.1.2]
+
+### Added
+
+- Added horizontal use-action support for non-block items such as hoes, allowing line mode to apply actions like tilling ground across a row.
+
+## [0.1.24+mc26.1.2]
+
+### Fixed
+
+- Allowed low or non-colliding blocks such as carpets and flowers to be placed in horizontal line mode by targeting the top of existing floor blocks instead of treating those items as walkable bridge supports.
+
 ## [0.1.23+mc26.1.2]
 
 ### Changed
